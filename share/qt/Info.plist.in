@@ -103,6 +103,9 @@
   <key>NSHumanReadableCopyright</key>
   <string>Copyright © 2009-@COPYRIGHT_YEAR@ The Bitcoin Core developers, 2014-@COPYRIGHT_YEAR@ @COPYRIGHT_HOLDERS_FINAL@</string>
 
+  <key>LSAppNapIsDisabled</key>
+    <string>True</string>
+
   <key>LSApplicationCategoryType</key>
     <string>public.app-category.finance</string>
 </dict>
