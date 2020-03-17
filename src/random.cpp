@@ -13,7 +13,7 @@
 #endif
 #include <logging.h>  // for LogPrint()
 #include <sync.h>     // for WAIT_LOCK
-#include <util/time.h> // for GetTime()
+#include <util/time.h> // for GetTimeMicros()
 
 #include <stdlib.h>
 #include <chrono>
@@ -246,13 +246,10 @@ void GetOSRand(unsigned char *ent32)
         RandFailure();
     }
 #elif defined(HAVE_GETENTROPY_RAND) && defined(MAC_OSX)
-    // We need a fallback for OSX < 10.12
-    if (&getentropy != nullptr) {
-        if (getentropy(ent32, NUM_OS_RANDOM_BYTES) != 0) {
-            RandFailure();
-        }
-    } else {
-        GetDevURandom(ent32);
+    /* getentropy() is available on macOS 10.12 and later.
+     */
+    if (getentropy(ent32, NUM_OS_RANDOM_BYTES) != 0) {
+        RandFailure();
     }
 #elif defined(HAVE_SYSCTL_ARND)
     /* FreeBSD and similar. It is possible for the call to return less
