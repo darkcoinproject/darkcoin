@@ -23,11 +23,12 @@ namespace llmq
 
 CBLSWorker* blsWorker;
 
-CDBWrapper* llmqDb;
-
 void InitLLMQSystem(CEvoDB& evoDb, bool unitTests, bool fWipe)
 {
-    llmqDb = new CDBWrapper(unitTests ? "" : (GetDataDir() / "llmq"), 8 << 20, unitTests, fWipe);
+    // NOTE: we use this only to wipe the old db, do NOT use it for anything else
+    // TODO: remove it in some future version
+    auto llmqDbTmp = std::make_unique<CDBWrapper>(unitTests ? "" : (GetDataDir() / "llmq"), 1 << 20, unitTests, true);
+
     blsWorker = new CBLSWorker();
 
     quorumDKGDebugManager = new CDKGDebugManager();
@@ -60,8 +61,6 @@ void DestroyLLMQSystem()
     quorumDKGDebugManager = nullptr;
     delete blsWorker;
     blsWorker = nullptr;
-    delete llmqDb;
-    llmqDb = nullptr;
     LOCK(cs_llmq_vbc);
     llmq_versionbitscache.Clear();
 }
