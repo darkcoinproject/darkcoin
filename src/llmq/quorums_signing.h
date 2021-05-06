@@ -78,7 +78,7 @@ public:
 class CRecoveredSigsDb
 {
 private:
-    CDBWrapper& db;
+    std::unique_ptr<CDBWrapper> db{nullptr};
 
     CCriticalSection cs;
     unordered_lru_cache<std::pair<Consensus::LLMQType, uint256>, bool, StaticSaltedHasher, 30000> hasSigForIdCache GUARDED_BY(cs);
@@ -86,7 +86,7 @@ private:
     unordered_lru_cache<uint256, bool, StaticSaltedHasher, 30000> hasSigForHashCache GUARDED_BY(cs);
 
 public:
-    explicit CRecoveredSigsDb(CDBWrapper& _db);
+    explicit CRecoveredSigsDb(bool fMemory, bool fWipe);
 
     void ConvertInvalidTimeKeys();
     void AddVoteTimeKeys();
@@ -148,7 +148,7 @@ private:
     std::vector<CRecoveredSigsListener*> recoveredSigsListeners GUARDED_BY(cs);
 
 public:
-    CSigningManager(CDBWrapper& llmqDb, bool fMemory);
+    CSigningManager(bool fMemory, bool fWipe);
 
     bool AlreadyHave(const CInv& inv);
     bool GetRecoveredSigForGetData(const uint256& hash, CRecoveredSig& ret);
