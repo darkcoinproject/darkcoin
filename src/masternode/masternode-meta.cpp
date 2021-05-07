@@ -5,10 +5,11 @@
 #include <masternode/masternode-meta.h>
 
 #include <timedata.h>
+#include <tinyformat.h>
 
 CMasternodeMetaMan mmetaman;
 
-const std::string CMasternodeMetaMan::SERIALIZATION_VERSION_STRING = "CMasternodeMetaMan-Version-2";
+const std::string CMasternodeMetaMan::SERIALIZATION_VERSION_STRING = "CMasternodeMetaMan-Version-3";
 
 UniValue CMasternodeMetaInfo::ToJson() const
 {
@@ -119,6 +120,7 @@ void CMasternodeMetaMan::Clear()
     LOCK(cs);
     metaInfos.clear();
     vecDirtyGovernanceObjectHashes.clear();
+    nCurrentVersionStarted = GetTime();
 }
 
 void CMasternodeMetaMan::CheckAndRemove()
@@ -128,9 +130,6 @@ void CMasternodeMetaMan::CheckAndRemove()
 
 std::string CMasternodeMetaMan::ToString() const
 {
-    std::ostringstream info;
-
-    info << "Masternodes: meta infos object count: " << (int)metaInfos.size() <<
-         ", nDsqCount: " << (int)nDsqCount;
-    return info.str();
+    return strprintf("Masternodes: meta infos object count: %ld, nDsqCount: %d, MIN_MASTERNODE_PROTO_VERSION: %d, nCurrentVersionStarted: %d",
+            metaInfos.size(), nDsqCount, MIN_MASTERNODE_PROTO_VERSION, nCurrentVersionStarted);
 }

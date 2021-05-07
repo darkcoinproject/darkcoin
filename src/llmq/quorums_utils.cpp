@@ -90,7 +90,27 @@ bool CLLMQUtils::IsAllMembersConnectedEnabled(Consensus::LLMQType llmqType)
 
 bool CLLMQUtils::IsQuorumPoseEnabled(Consensus::LLMQType llmqType)
 {
-    return EvalSpork(llmqType, sporkManager.GetSporkValue(SPORK_23_QUORUM_POSE));
+    if (!EvalSpork(llmqType, sporkManager.GetSporkValue(SPORK_23_QUORUM_POSE))) {
+        return false;
+    }
+
+    static bool fPoSeCooldownPassed{false};
+    if (fPoSeCooldownPassed) {
+        return true;
+    }
+
+    // Stop applying PoSe cooldown after the first three months since the start of the most recent major upgrade
+    const int64_t nStartTime = Consensus::MAX_VERSION_BITS_DEPLOYMENTS > 0 ? Params().GetConsensus().vDeployments[Consensus::MAX_VERSION_BITS_DEPLOYMENTS - 1].nStartTime : 0;
+    if (GetTime() - nStartTime > 3 * 30 * 24 * 60 * 60 /* three months */) {
+        fPoSeCooldownPassed = true;
+        return true;
+    }
+
+    // It takes the "number of registered MNs" blocks (in seconds) since the latest local protocol update to start applying PoSe logic.
+    // It means that new nodes won't try to PoSe-punish old nodes right after the update and will let them fully recover first (if needed).
+    const int64_t nPoSeCooldown = deterministicMNManager->GetListAtChainTip().GetAllMNsCount() * Params().GetConsensus().nPowTargetSpacing;
+    fPoSeCooldownPassed = GetTime() - mmetaman.GetCurrentVersionStarted() > nPoSeCooldown;
+    return fPoSeCooldownPassed;
 }
 
 uint256 CLLMQUtils::DeterministicOutboundConnection(const uint256& proTxHash1, const uint256& proTxHash2)
