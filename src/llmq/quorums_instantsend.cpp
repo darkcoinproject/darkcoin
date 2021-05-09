@@ -465,7 +465,17 @@ void CInstantSendManager::ProcessTx(const CTransaction& tx, bool fRetroactive, c
     uint256 islockHash;
     {
         LOCK(cs);
-        islockHash = db.GetInstantSendLockHashByTxid(tx.GetHash());
+        auto it = pendingNoTxInstantSendLocks.begin();
+        while (it != pendingNoTxInstantSendLocks.end()) {
+            if (it->second.second->txid == tx.GetHash()) {
+                // we received an islock ealier
+                LogPrint(BCLog::INSTANTSEND, "CInstantSendManager::%s -- txid=%s, islock=%s\n", __func__,
+                         tx.GetHash().ToString(), it->first.ToString());
+                islockHash = it->first;
+                break;
+            }
+            ++it;
+        }
     }
     if (!islockHash.IsNull()) {
         CInv inv(MSG_ISLOCK, islockHash);
@@ -769,7 +779,7 @@ void CInstantSendManager::ProcessMessageInstantSendLock(CNode* pfrom, const llmq
     }
 
     LOCK(cs);
-    if (pendingInstantSendLocks.count(hash) || db.KnownInstantSendLock(hash)) {
+    if (pendingInstantSendLocks.count(hash) || pendingNoTxInstantSendLocks.count(hash) || db.KnownInstantSendLock(hash)) {
         return;
     }
 
@@ -1006,9 +1016,15 @@ void CInstantSendManager::ProcessInstantSendLock(NodeId from, const uint256& has
             }
         }
 
-        db.WriteNewInstantSendLock(hash, *islock);
-        if (pindexMined) {
-            db.WriteInstantSendLockMined(hash, pindexMined->nHeight);
+        if (tx == nullptr) {
+            // put it in a separate pending map and try again later
+            LOCK(cs);
+            pendingNoTxInstantSendLocks.emplace(hash, std::make_pair(from, islock));
+        } else {
+            db.WriteNewInstantSendLock(hash, *islock);
+            if (pindexMined) {
+                db.WriteInstantSendLockMined(hash, pindexMined->nHeight);
+            }
         }
 
         // This will also add children TXs to pendingRetryTxs
@@ -1048,7 +1064,19 @@ void CInstantSendManager::TransactionAddedToMempool(const CTransactionRef& tx)
     CInstantSendLockPtr islock{nullptr};
     {
         LOCK(cs);
-        islock = db.GetInstantSendLockByTxid(tx->GetHash());
+        auto it = pendingNoTxInstantSendLocks.begin();
+        while (it != pendingNoTxInstantSendLocks.end()) {
+            if (it->second.second->txid == tx->GetHash()) {
+                // we received an islock ealier
+                LogPrint(BCLog::INSTANTSEND, "CInstantSendManager::%s -- txid=%s, islock=%s\n", __func__,
+                         tx->GetHash().ToString(), it->first.ToString());
+                islock = it->second.second;
+                pendingInstantSendLocks.emplace(*it);
+                pendingNoTxInstantSendLocks.erase(it);
+                break;
+            }
+            ++it;
+        }
     }
 
     if (islock == nullptr) {
@@ -1056,16 +1084,6 @@ void CInstantSendManager::TransactionAddedToMempool(const CTransactionRef& tx)
         // TX is not locked, so make sure it is tracked
         LOCK(cs);
         AddNonLockedTx(tx, nullptr);
-    } else {
-        {
-            // TX is locked, so make sure we don't track it anymore
-            LOCK(cs);
-            RemoveNonLockedTx(tx->GetHash(), true);
-        }
-        // If the islock was received before the TX, we know we were not able to send
-        // the notification at that time, we need to do it now.
-        LogPrint(BCLog::INSTANTSEND, "CInstantSendManager::%s -- notify about an earlier received lock for tx %s\n", __func__, tx->GetHash().ToString());
-        GetMainSignals().NotifyTransactionLock(tx, islock);
     }
 }
 
@@ -1142,6 +1160,19 @@ void CInstantSendManager::AddNonLockedTx(const CTransactionRef& tx, const CBlock
             nonLockedTxs[in.prevout.hash].children.emplace(tx->GetHash());
             nonLockedTxsByOutpoints.emplace(in.prevout, tx->GetHash());
         }
+    }
+
+    auto it = pendingNoTxInstantSendLocks.begin();
+    while (it != pendingNoTxInstantSendLocks.end()) {
+        if (it->second.second->txid == tx->GetHash()) {
+            // we received an islock ealier, let's put it back into pending and verify/lock
+            LogPrint(BCLog::INSTANTSEND, "CInstantSendManager::%s -- txid=%s, islock=%s\n", __func__,
+                     tx->GetHash().ToString(), it->first.ToString());
+            pendingInstantSendLocks.emplace(*it);
+            pendingNoTxInstantSendLocks.erase(it);
+            break;
+        }
+        ++it;
     }
 
     LogPrint(BCLog::INSTANTSEND, "CInstantSendManager::%s -- txid=%s, pindexMined=%s\n", __func__,
@@ -1518,7 +1549,7 @@ bool CInstantSendManager::AlreadyHave(const CInv& inv) const
     }
 
     LOCK(cs);
-    return pendingInstantSendLocks.count(inv.hash) != 0 || db.KnownInstantSendLock(inv.hash);
+    return pendingInstantSendLocks.count(inv.hash) != 0 || pendingNoTxInstantSendLocks.count(inv.hash) != 0 || db.KnownInstantSendLock(inv.hash);
 }
 
 bool CInstantSendManager::GetInstantSendLockByHash(const uint256& hash, llmq::CInstantSendLock& ret) const
@@ -1530,7 +1561,17 @@ bool CInstantSendManager::GetInstantSendLockByHash(const uint256& hash, llmq::CI
     LOCK(cs);
     auto islock = db.GetInstantSendLockByHash(hash);
     if (!islock) {
-        return false;
+        auto it = pendingInstantSendLocks.find(hash);
+        if (it != pendingInstantSendLocks.end()) {
+            islock = it->second.second;
+        } else {
+            auto itNoTx = pendingNoTxInstantSendLocks.find(hash);
+            if (itNoTx != pendingNoTxInstantSendLocks.end()) {
+                islock = itNoTx->second.second;
+            } else {
+                return false;
+            }
+        }
     }
     ret = *islock;
     return true;
@@ -1570,6 +1611,25 @@ bool CInstantSendManager::IsLocked(const uint256& txHash) const
 bool CInstantSendManager::IsConflicted(const CTransaction& tx) const
 {
     return GetConflictingLock(tx) != nullptr;
+}
+
+bool CInstantSendManager::IsWaitingForTx(const uint256& txHash) const
+{
+    if (!IsInstantSendEnabled()) {
+        return false;
+    }
+
+    LOCK(cs);
+    auto it = pendingNoTxInstantSendLocks.begin();
+    while (it != pendingNoTxInstantSendLocks.end()) {
+        if (it->second.second->txid == txHash) {
+            LogPrint(BCLog::INSTANTSEND, "CInstantSendManager::%s -- txid=%s, islock=%s\n", __func__,
+                     txHash.ToString(), it->first.ToString());
+            return true;
+        }
+        ++it;
+    }
+    return false;
 }
 
 CInstantSendLockPtr CInstantSendManager::GetConflictingLock(const CTransaction& tx) const
