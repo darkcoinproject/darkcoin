@@ -232,10 +232,17 @@ class LLMQ_IS_CL_Conflicts(DashTestFramework):
         assert(self.nodes[0].getbestblockhash() == good_tip)
         assert(self.nodes[1].getbestblockhash() == good_tip)
 
-        # Send the actual transaction and mine it
+        # islock for tx2 is incomplete, should allow competing txes
+        self.nodes[0].sendrawtransaction(rawtx1)
+        # should drop tx1 and accept tx2 because there is an islock waiting for it
         self.nodes[0].sendrawtransaction(rawtx2)
+        # should not allow competing txes now
+        assert_raises_rpc_error(-26, "txn-mempool-conflict", self.nodes[0].sendrawtransaction, rawtx1)
+        self.wait_for_instantlock(rawtx2_txid, self.nodes[0])
         self.nodes[0].generate(1)
         self.sync_all()
+        for node in self.nodes:
+            self.wait_for_instantlock(rawtx2_txid, node)
 
         assert(self.nodes[0].getrawtransaction(rawtx2_txid, True)['confirmations'] > 0)
         assert(self.nodes[1].getrawtransaction(rawtx2_txid, True)['confirmations'] > 0)
