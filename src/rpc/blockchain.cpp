@@ -32,8 +32,12 @@
 #include <evo/specialtx.h>
 #include <evo/cbtx.h>
 
+#include <llmq/quorums.h>
 #include <llmq/quorums_chainlocks.h>
+#include <llmq/quorums_commitment.h>
 #include <llmq/quorums_instantsend.h>
+#include <llmq/quorums_signing.h>
+#include <llmq/quorums_utils.h>
 
 #include <stdint.h>
 
@@ -217,7 +221,7 @@ UniValue getbestchainlock(const JSONRPCRequest& request)
     if (request.fHelp || request.params.size() != 0)
         throw std::runtime_error(
             "getbestchainlock\n"
-            "\nReturns information about the best chainlock. Throws an error if there is no known chainlock yet."
+            "\nDEPRECATED. Returns information about the best chainlock. Throws an error if there is no known chainlock yet."
             "\nResult:\n"
             "{\n"
             "  \"blockhash\" : \"hash\",      (string) The block hash hex encoded\n"
@@ -229,9 +233,16 @@ UniValue getbestchainlock(const JSONRPCRequest& request)
             + HelpExampleCli("getbestchainlock", "")
             + HelpExampleRpc("getbestchainlock", "")
         );
+
+    if (!IsDeprecatedRPCEnabled("getbestchainlock")) {
+        throw JSONRPCError(RPC_METHOD_DEPRECATED, "getbestchainlock is deprecated and will be fully removed in v0.18. "
+            "To use getbestchainlock in v0.17, restart dashd with -deprecatedrpc=getbestchainlock.\n"
+            "Projects should transition to using getchainlocks before upgrading to v0.18");
+    }
+
     UniValue result(UniValue::VOBJ);
 
-    llmq::CChainLockSig clsig = llmq::chainLocksHandler->GetBestChainLock();
+    llmq::CChainLockSig clsig = llmq::chainLocksHandler->GetMostRecentChainLock();
     if (clsig.IsNull()) {
         throw JSONRPCError(RPC_INTERNAL_ERROR, "Unable to find any chainlock");
     }
@@ -241,6 +252,101 @@ UniValue getbestchainlock(const JSONRPCRequest& request)
 
     LOCK(cs_main);
     result.pushKV("known_block", mapBlockIndex.count(clsig.blockHash) > 0);
+
+    return result;
+}
+
+UniValue getchainlocks(const JSONRPCRequest& request)
+{
+    if (request.fHelp || request.params.size() != 0) {
+        throw std::runtime_error(
+            "getchainlocks\n"
+            "\nReturns information about the active and the most recent chainlocks.\n"
+            "The active chainlock is the one that has enough signatures and the block\n"
+            "it tries to lock is known by our node. The recent chainlock might not have\n"
+            "enough signatures or its block might not be known by our node yet.\n"
+            "Throws an error if there is no known chainlock yet.\n"
+            "\nResult:\n"
+            "{\n"
+            "  \"recent_chainlock\" : {       (object)\n"
+            "    \"version\" : n,             (numeric) The chainlock's version\n"
+            "    \"blockhash\" : \"hash\",      (string) The block hash hex encoded\n"
+            "    \"height\" : n,              (numeric) The block height or index\n"
+            "    \"signature\" : \"hash\",      (string) The chainlock's BLS signature.\n"
+            "    \"known_block\" : true|false (boolean) True if the block is known by our node\n"
+            "  },\n"
+            "  \"active_chainlock\" : {       (object) Only shown when Multi-Quorum ChainLocks are enabled\n"
+            "    \"version\" : n,             (numeric) The chainlock's version\n"
+            "    \"blockhash\" : \"hash\",      (string) The block hash hex encoded\n"
+            "    \"height\" : n,              (numeric) The block height or index\n"
+            "    \"signers\" : \"hex\",         (string) The hex representation of a combined signer index\n"
+            "    \"signature\" : \"hash\",      (string) The chainlock's BLS aggregated signature\n"
+            "    \"shares\" : [               (array) The chainlock's BLS signatures produced by various quorums\n"
+            "      {\n"
+            "        \"quorumHash\" : \"hash\", (string) The quorum voted for this chainlock\n"
+            "        \"signers\" : \"hex\",     (string) The hex representation of the quorum signer index\n"
+            "        \"signature\" : \"hex\",   (string) The chainlock's BLS signature produced by that quorum\n"
+            "      }\n"
+            "    ... ],\n"
+            "  }\n"
+            "}\n"
+            "\nExamples:\n"
+            + HelpExampleCli("getchainlocks", "")
+            + HelpExampleRpc("getchainlocks", "")
+        );
+    }
+
+    UniValue result(UniValue::VOBJ);
+    UniValue recentChainlock(UniValue::VOBJ);
+    UniValue activeChainlock(UniValue::VOBJ);
+    UniValue activeChainlockShares(UniValue::VARR);
+
+    llmq::CChainLockSig clsig = llmq::chainLocksHandler->GetMostRecentChainLock();
+    if (clsig.IsNull()) {
+        throw JSONRPCError(RPC_INTERNAL_ERROR, "Unable to find any chainlock");
+    }
+    recentChainlock.pushKV("version", clsig.nVersion);
+    recentChainlock.pushKV("blockhash", clsig.blockHash.GetHex());
+    recentChainlock.pushKV("height", clsig.nHeight);
+    recentChainlock.pushKV("signature", clsig.sig.ToString());
+
+    {
+        LOCK(cs_main);
+        recentChainlock.pushKV("known_block", mapBlockIndex.count(clsig.blockHash) > 0);
+    }
+    result.pushKV("recent_chainlock", recentChainlock);
+
+    clsig = llmq::chainLocksHandler->GetBestChainLock();
+
+    if (clsig.IsNull()) {
+        activeChainlock.pushKV("shares", activeChainlockShares);
+        result.pushKV("active_chainlock", activeChainlock);
+        return result;
+    }
+
+    activeChainlock.pushKV("version", clsig.nVersion);
+    activeChainlock.pushKV("blockhash", clsig.blockHash.GetHex());
+    activeChainlock.pushKV("height", clsig.nHeight);
+    activeChainlock.pushKV("signers", llmq::CLLMQUtils::ToHexStr(clsig.signers));
+    activeChainlock.pushKV("signature", clsig.sig.ToString());
+
+    const auto& clsigsShares = llmq::chainLocksHandler->GetBestChainLockShares();
+    if (clsigsShares.empty()) {
+        activeChainlock.pushKV("shares", activeChainlockShares);
+        result.pushKV("active_chainlock", activeChainlock);
+        return result;
+    }
+
+    for (const auto& pair : clsigsShares) {
+        UniValue sig(UniValue::VOBJ);
+        sig.pushKV("quorumHash", pair.first->qc->quorumHash.GetHex());
+        sig.pushKV("signers", llmq::CLLMQUtils::ToHexStr(pair.second->signers));
+        sig.pushKV("signature", pair.second->sig.ToString());
+        activeChainlockShares.push_back(sig);
+    }
+    activeChainlock.pushKV("shares", activeChainlockShares);
+    result.pushKV("active_chainlock", activeChainlock);
+
     return result;
 }
 
@@ -2238,6 +2344,7 @@ static const CRPCCommand commands[] =
     { "blockchain",         "getblockheaders",        &getblockheaders,        {"blockhash","count","verbose"} },
     { "blockchain",         "getmerkleblocks",        &getmerkleblocks,        {"filter","blockhash","count"} },
     { "blockchain",         "getchaintips",           &getchaintips,           {"count","branchlen"} },
+    { "blockchain",         "getchainlocks",          &getchainlocks,          {} },
     { "blockchain",         "getdifficulty",          &getdifficulty,          {} },
     { "blockchain",         "getmempoolancestors",    &getmempoolancestors,    {"txid","verbose"} },
     { "blockchain",         "getmempooldescendants",  &getmempooldescendants,  {"txid","verbose"} },

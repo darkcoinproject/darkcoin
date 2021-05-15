@@ -26,23 +26,42 @@ extern const std::string CLSIG_REQUESTID_PREFIX;
 class CChainLockSig
 {
 public:
+    uint8_t nVersion{0}; // 0 == old format
     int32_t nHeight{-1};
     uint256 blockHash;
     CBLSSignature sig;
+    std::vector<bool> signers;
 
-public:
+    CChainLockSig() = default;
+    CChainLockSig(uint8_t nVersionIn) : nVersion(nVersionIn) {}
+
     ADD_SERIALIZE_METHODS
 
     template<typename Stream, typename Operation>
     inline void SerializationOp(Stream& s, Operation ser_action)
     {
+        if (s.GetVersion() >= MULTI_QUORUM_CHAINLOCKS_VERSION && this->nVersion > 0) {
+            READWRITE(this->nVersion);
+        }
         READWRITE(nHeight);
         READWRITE(blockHash);
         READWRITE(sig);
+        if (s.GetVersion() >= MULTI_QUORUM_CHAINLOCKS_VERSION && this->nVersion > 0) {
+            READWRITE(DYNBITSET(signers));
+        }
     }
 
     bool IsNull() const;
     std::string ToString() const;
+};
+
+typedef std::shared_ptr<const CChainLockSig> CChainLockSigCPtr;
+
+struct ReverseHeightComparator
+{
+    bool operator()(const int h1, const int h2) const {
+        return h1 > h2;
+    }
 };
 
 class CChainLocksHandler : public CRecoveredSigsListener
@@ -61,16 +80,16 @@ private:
     bool isEnabled GUARDED_BY(cs) {false};
     bool isEnforced GUARDED_BY(cs) {false};
 
-    uint256 bestChainLockHash GUARDED_BY(cs);
-    CChainLockSig bestChainLock GUARDED_BY(cs);
-
+    CChainLockSig mostRecentChainLockShare GUARDED_BY(cs);
     CChainLockSig bestChainLockWithKnownBlock GUARDED_BY(cs);
     const CBlockIndex* bestChainLockBlockIndex GUARDED_BY(cs) {nullptr};
     const CBlockIndex* lastNotifyChainLockBlockIndex GUARDED_BY(cs) {nullptr};
 
-    int32_t lastSignedHeight GUARDED_BY(cs) {-1};
-    uint256 lastSignedRequestId GUARDED_BY(cs);
-    uint256 lastSignedMsgHash GUARDED_BY(cs);
+    // Keep best chainlock shares and candidates, sorted by height (highest heght first).
+    std::map<int, std::map<CQuorumCPtr, CChainLockSigCPtr>, ReverseHeightComparator> bestChainLockShares GUARDED_BY(cs);
+    std::map<int, CChainLockSigCPtr, ReverseHeightComparator> bestChainLockCandidates GUARDED_BY(cs);
+
+    std::map<uint256, std::pair<int, uint256> > mapSignedRequestIds GUARDED_BY(cs);
 
     // We keep track of txids from recently received blocks so that we can check if all TXs got islocked
     typedef std::unordered_map<uint256, std::shared_ptr<std::unordered_set<uint256, StaticSaltedHasher>>> BlockTxs;
@@ -90,10 +109,12 @@ public:
 
     bool AlreadyHave(const CInv& inv);
     bool GetChainLockByHash(const uint256& hash, CChainLockSig& ret);
-    CChainLockSig GetBestChainLock();
+    const CChainLockSig GetMostRecentChainLock();
+    const CChainLockSig GetBestChainLock();
+    const std::map<CQuorumCPtr, CChainLockSigCPtr> GetBestChainLockShares();
 
     void ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStream& vRecv);
-    void ProcessNewChainLock(NodeId from, const CChainLockSig& clsig, const uint256& hash);
+    void ProcessNewChainLock(NodeId from, CChainLockSig& clsig, const uint256& hash, const uint256& idIn = uint256());
     void AcceptedBlockHeader(const CBlockIndex* pindexNew);
     void UpdatedBlockTip(const CBlockIndex* pindexNew);
     void TransactionAddedToMempool(const CTransactionRef& tx, int64_t nAcceptTime);
@@ -116,12 +137,17 @@ private:
 
     BlockTxs::mapped_type GetBlockTxs(const uint256& blockHash);
 
+    bool TryUpdateBestChainLock(const CBlockIndex* pindex);
+    bool VerifyChainLockShare(const CChainLockSig& clsig, const CBlockIndex* pindexScan, const uint256& idIn, std::pair<int, CQuorumCPtr>& ret);
+    bool VerifyAggregatedChainLock(const CChainLockSig& clsig, const CBlockIndex* pindexScan);
+
     void Cleanup();
 };
 
 extern CChainLocksHandler* chainLocksHandler;
 
 bool AreChainLocksEnabled();
+bool AreMultiQuorumChainLocksEnabled();
 
 } // namespace llmq
 
