@@ -109,6 +109,8 @@ private:
 
     // Incoming and not verified yet
     std::unordered_map<uint256, std::pair<NodeId, CInstantSendLockPtr>, StaticSaltedHasher> pendingInstantSendLocks GUARDED_BY(cs);
+    // Tried to veryfy but there is no tx yet
+    std::unordered_map<uint256, std::pair<NodeId, CInstantSendLockPtr>, StaticSaltedHasher> pendingNoTxInstantSendLocks GUARDED_BY(cs);
 
     // TXs which are neither IS locked nor ChainLocked. We use this to determine for which TXs we need to retry IS locking
     // of child TXs
@@ -136,6 +138,7 @@ public:
     bool CheckCanLock(const COutPoint& outpoint, bool printDebug, const uint256& txHash, CAmount* retValue, const Consensus::Params& params) const;
     bool IsLocked(const uint256& txHash) const;
     bool IsConflicted(const CTransaction& tx) const;
+    bool IsWaitingForTx(const uint256& txHash) const;
     CInstantSendLockPtr GetConflictingLock(const CTransaction& tx) const;
 
     virtual void HandleNewRecoveredSig(const CRecoveredSig& recoveredSig);

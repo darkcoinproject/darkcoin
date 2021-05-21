@@ -682,16 +682,21 @@ static bool AcceptToMemoryPoolWorker(const CChainParams& chainparams, CTxMemPool
                          REJECT_INVALID, "tx-txlock-conflict");
     }
 
-    // Check for conflicts with in-memory transactions
-    for (const CTxIn &txin : tx.vin)
-    {
-        auto itConflicting = pool.mapNextTx.find(txin.prevout);
-        if (itConflicting != pool.mapNextTx.end())
+    if (llmq::quorumInstantSendManager->IsWaitingForTx(hash)) {
+        pool.removeConflicts(tx);
+        pool.removeProTxConflicts(tx);
+    } else {
+        // Check for conflicts with in-memory transactions
+        for (const CTxIn &txin : tx.vin)
         {
-            const CTransaction *ptxConflicting = itConflicting->second;
+            auto itConflicting = pool.mapNextTx.find(txin.prevout);
+            if (itConflicting != pool.mapNextTx.end())
+            {
+                const CTransaction *ptxConflicting = itConflicting->second;
 
-            // Transaction conflicts with mempool and RBF doesn't exist in Dash
-            return state.Invalid(false, REJECT_DUPLICATE, "txn-mempool-conflict");
+                // Transaction conflicts with mempool and RBF doesn't exist in Dash
+                return state.Invalid(false, REJECT_DUPLICATE, "txn-mempool-conflict");
+            }
         }
     }
 
