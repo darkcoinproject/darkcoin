@@ -414,6 +414,7 @@ endif
 libdash_wallet_a_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
 libdash_wallet_a_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
 libdash_wallet_a_SOURCES = \
+  bls/crypter.cpp \
   coinjoin/coinjoin-client.cpp \
   coinjoin/coinjoin-client-options.cpp \
   coinjoin/coinjoin-util.cpp \
@@ -557,6 +558,7 @@ libdash_common_a_SOURCES = \
   base58.cpp \
   bech32.cpp \
   bip39.cpp \
+  bls/keystore.cpp \
   chainparams.cpp \
   coins.cpp \
   compressor.cpp \
