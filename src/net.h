@@ -966,9 +966,9 @@ public:
     std::atomic<int64_t> timeLastMempoolReq;
     // Ping time measurement:
     // The pong reply we're expecting, or 0 if no pong expected.
-    std::atomic<uint64_t> nPingNonceSent;
-    // Time (in usec) the last ping was sent, or 0 if no ping was ever sent.
-    std::atomic<int64_t> nPingUsecStart;
+    std::atomic<uint64_t> nPingNonceSent{0};
+    /** When the last ping was sent, or 0 if no ping was ever sent */
+    std::atomic<std::chrono::microseconds> m_ping_start{std::chrono::microseconds{0}};
     // Last measured round-trip time.
     std::atomic<int64_t> nPingUsecTime;
     // Best measured round-trip time.

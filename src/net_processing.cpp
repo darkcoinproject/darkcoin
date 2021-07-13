@@ -2089,7 +2089,7 @@ std::string RejectCodeToString(const unsigned char code)
     return "";
 }
 
-bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStream& vRecv, int64_t nTimeReceived, const CChainParams& chainparams, CConnman* connman, const std::atomic<bool>& interruptMsgProc, bool enable_bip61)
+bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStream& vRecv, const std::chrono::microseconds time_received, const CChainParams& chainparams, CConnman* connman, const std::atomic<bool>& interruptMsgProc, bool enable_bip61)
 {
     LogPrint(BCLog::NET, "received: %s (%u bytes) peer=%d\n", SanitizeString(strCommand), vRecv.size(), pfrom->GetId());
     statsClient.inc("message.received." + SanitizeString(strCommand), 1.0f);
@@ -3188,7 +3188,7 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
         } // cs_main
 
         if (fProcessBLOCKTXN)
-            return ProcessMessage(pfrom, NetMsgType::BLOCKTXN, blockTxnMsg, nTimeReceived, chainparams, connman, interruptMsgProc, enable_bip61);
+            return ProcessMessage(pfrom, NetMsgType::BLOCKTXN, blockTxnMsg, time_received, chainparams, connman, interruptMsgProc, enable_bip61);
 
         if (fRevertToHeaderProcessing) {
             // Headers received from HB compact block peers are permitted to be
@@ -3448,7 +3448,7 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
     }
 
     if (strCommand == NetMsgType::PONG) {
-        int64_t pingUsecEnd = nTimeReceived;
+        const auto ping_end = time_received;
         uint64_t nonce = 0;
         size_t nAvail = vRecv.in_avail();
         bool bPingFinished = false;
@@ -3462,11 +3462,11 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
                 if (nonce == pfrom->nPingNonceSent) {
                     // Matching pong received, this ping is no longer outstanding
                     bPingFinished = true;
-                    int64_t pingUsecTime = pingUsecEnd - pfrom->nPingUsecStart;
-                    if (pingUsecTime > 0) {
+                    const auto ping_time = ping_end - pfrom->m_ping_start.load();
+                    if (ping_time.count() > 0) {
                         // Successful ping time measurement, replace previous
-                        pfrom->nPingUsecTime = pingUsecTime;
-                        pfrom->nMinPingUsecTime = std::min(pfrom->nMinPingUsecTime.load(), pingUsecTime);
+                        pfrom->nPingUsecTime = count_microseconds(ping_time);
+                        pfrom->nMinPingUsecTime = std::min(pfrom->nMinPingUsecTime.load(), count_microseconds(ping_time));
                     } else {
                         // This should never happen
                         sProblem = "Timing mishap";
@@ -3761,7 +3761,7 @@ bool PeerLogicValidation::ProcessMessages(CNode* pfrom, std::atomic<bool>& inter
     bool fRet = false;
     try
     {
-        fRet = ProcessMessage(pfrom, strCommand, vRecv, msg.nTime, chainparams, connman, interruptMsgProc, m_enable_bip61);
+        fRet = ProcessMessage(pfrom, strCommand, vRecv, std::chrono::seconds{msg.nTime}, chainparams, connman, interruptMsgProc, m_enable_bip61);
         if (interruptMsgProc)
             return false;
         if (!pfrom->vRecvGetData.empty())
@@ -3978,7 +3978,7 @@ bool PeerLogicValidation::SendMessages(CNode* pto)
             // RPC ping request by user
             pingSend = true;
         }
-        if (pto->nPingNonceSent == 0 && pto->nPingUsecStart + PING_INTERVAL * 1000000 < GetTimeMicros()) {
+        if (pto->nPingNonceSent == 0 && pto->m_ping_start.load() + PING_INTERVAL < GetTime<std::chrono::microseconds>()) {
             // Ping automatically sent as a latency probe & keepalive.
             pingSend = true;
         }
@@ -3988,7 +3988,7 @@ bool PeerLogicValidation::SendMessages(CNode* pto)
                 GetRandBytes((unsigned char*)&nonce, sizeof(nonce));
             }
             pto->fPingQueued = false;
-            pto->nPingUsecStart = GetTimeMicros();
+            pto->m_ping_start = GetTime<std::chrono::microseconds>();
             pto->nPingNonceSent = nonce;
             connman->PushMessage(pto, msgMaker.Make(NetMsgType::PING, nonce));
         }

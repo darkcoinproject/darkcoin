@@ -609,7 +609,7 @@ bool IsProxy(const CNetAddr &addr) {
     return false;
 }
 
-bool ConnectThroughProxy(const proxyType &proxy, const std::string& strDest, int port, const SOCKET& hSocket, int nTimeout, bool *outProxyConnectionFailed)
+bool ConnectThroughProxy(const proxyType &proxy, const std::string& strDest, int port, const Sock& sock, int nTimeout, bool *outProxyConnectionFailed)
 {
     // first connect to proxy server
     if (!ConnectSocketDirectly(proxy.proxy, hSocket, nTimeout, true)) {
