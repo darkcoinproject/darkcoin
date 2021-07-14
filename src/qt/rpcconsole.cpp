@@ -986,7 +986,8 @@ void RPCConsole::updateMasternodeCount()
 
 void RPCConsole::setBestChainLockHash(std::string blockHash)
 {
-    ui->BestChainLockHash->setText(QString blockHash);
+    QString clHash = blockHash;
+    ui->BestChainLockHash->setText(clHash);
 }
 
 void RPCConsole::setBestChainLockHeight(int32_t nHeight)
