@@ -63,6 +63,20 @@ public:
 class LLMQImpl : public LLMQ
 {
 public:
+    std::string GetBestChainLockHash() override
+    {
+        if (!llmq::chainLocksHandler) {
+            return 0;
+        }
+        return llmq::chainLocksHandler->GetBestChainLockHash();
+    }
+    int32_t GetBestChainLockHeight() override
+    {
+        if (!llmq::chainLocksHandler) {
+            return 0;
+        }
+        return llmq::chainLocksHandler->GetBestChainLockHeight();
+    }
     size_t getInstantSentLockCount() override
     {
         if (!llmq::quorumInstantSendManager) {

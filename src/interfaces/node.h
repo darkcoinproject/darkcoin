@@ -45,9 +45,9 @@ class LLMQ
 {
 public:
     virtual ~LLMQ() {}
-    virtual size_t getInstantSentLockCount() = 0;
     virtual std::string GetBestChainLockHash() = 0;
     virtual int32_t GetBestChainLockHeight() = 0;
+    virtual size_t getInstantSentLockCount() = 0;
 };
 
 //! Interface for the src/masternode part of a dash node (dashd process).
