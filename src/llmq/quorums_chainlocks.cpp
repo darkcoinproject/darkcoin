@@ -92,11 +92,13 @@ CChainLockSig CChainLocksHandler::GetBestChainLock()
 
 std::string CChainLocksHandler::GetBestChainLockHash()
 {
+    LOCK(cs);
     return bestChainLock.blockHash.ToString();
 }
 
 int32_t CChainLocksHandler::GetBestChainLockHeight()
 {
+    LOCK(cs);
     return bestChainLock.nHeight;
 }
 
