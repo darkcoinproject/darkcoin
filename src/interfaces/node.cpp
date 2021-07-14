@@ -12,6 +12,7 @@
 #include <init.h>
 #include <interfaces/handler.h>
 #include <interfaces/wallet.h>
+#include <llmq/quorums_chainlocks.h>
 #include <llmq/quorums_instantsend.h>
 #include <masternode/masternode-sync.h>
 #include <net.h>
