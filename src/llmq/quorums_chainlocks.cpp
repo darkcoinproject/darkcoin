@@ -90,6 +90,16 @@ CChainLockSig CChainLocksHandler::GetBestChainLock()
     return bestChainLock;
 }
 
+std::string CChainLocksHandler::GetBestChainLockHash()
+{
+    return bestChainLock.blockHash.ToString();
+}
+
+int32_t CChainLocksHandler::GetBestChainLockHeight()
+{
+    return bestChainLock.nHeight;
+}
+
 void CChainLocksHandler::ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStream& vRecv)
 {
     if (!AreChainLocksEnabled()) {
