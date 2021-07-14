@@ -93,7 +93,7 @@ CChainLockSig CChainLocksHandler::GetBestChainLock()
 std::string CChainLocksHandler::GetBestChainLockHash()
 {
     LOCK(cs);
-    return GetBestChainLock().blockHash.ToString();
+    return bestChainLockHash.ToString();
 }
 
 int32_t CChainLocksHandler::GetBestChainLockHeight()
