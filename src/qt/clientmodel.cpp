@@ -26,8 +26,6 @@
 #include <util/system.h>
 #include <warnings.h>
 
-#include "llmq/quorums_chainlocks.h"
-
 #include <stdint.h>
 
 #include <QDebug>
