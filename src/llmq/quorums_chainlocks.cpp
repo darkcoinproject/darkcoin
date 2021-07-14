@@ -93,13 +93,13 @@ CChainLockSig CChainLocksHandler::GetBestChainLock()
 std::string CChainLocksHandler::GetBestChainLockHash()
 {
     LOCK(cs);
-    return bestChainLockHash.ToString();
+    return bestChainLock.blockHash.ToString();
 }
 
 int32_t CChainLocksHandler::GetBestChainLockHeight()
 {
     LOCK(cs);
-    return GetBestChainLock().nHeight;
+    return bestChainLock.nHeight;
 }
 
 void CChainLocksHandler::ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStream& vRecv)
