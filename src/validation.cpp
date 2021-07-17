@@ -197,7 +197,7 @@ public:
 
     bool ReplayBlocks(const CChainParams& params, CCoinsView* view);
     bool LoadGenesisBlock(const CChainParams& chainparams);
-    bool AddGenesisBlock(const CChainParams& chainparams, const CBlock& block, CValidationState& state);
+    bool AddGenesisBlock(const CChainParams& chainparams, const CBlock& block, CValidationState& state) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
 
     void PruneBlockIndexCandidates();
 
@@ -693,8 +693,6 @@ static bool AcceptToMemoryPoolWorker(const CChainParams& chainparams, CTxMemPool
         auto itConflicting = pool.mapNextTx.find(txin.prevout);
         if (itConflicting != pool.mapNextTx.end())
         {
-            const CTransaction *ptxConflicting = itConflicting->second;
-
             // Transaction conflicts with mempool and RBF doesn't exist in Dash
             return state.Invalid(false, REJECT_DUPLICATE, "txn-mempool-conflict");
         }
@@ -824,7 +822,7 @@ static bool AcceptToMemoryPoolWorker(const CChainParams& chainparams, CTxMemPool
         // Check against previous transactions
         // This is done last to help prevent CPU exhaustion denial-of-service attacks.
         PrecomputedTransactionData txdata(tx);
-        if (!CheckInputs(tx, state, view, true, STANDARD_SCRIPT_VERIFY_FLAGS, true, false, txdata))
+        if (!CheckInputs(tx, state, view, true, scriptVerifyFlags, true, false, txdata))
             return false; // state filled in by CheckInputs
 
         // Check again against the current block tip's script verification
@@ -1235,7 +1233,6 @@ bool IsInitialBlockDownload()
         return false;
     if (fImporting || fReindex)
         return true;
-    const CChainParams& chainParams = Params();
     if (chainActive.Tip() == nullptr)
         return true;
     if (chainActive.Tip()->nChainWork < nMinimumChainWork)
@@ -1366,7 +1363,7 @@ void static InvalidChainFound(CBlockIndex* pindexNew) EXCLUSIVE_LOCKS_REQUIRED(c
     CheckForkWarningConditions();
 }
 
-void static ConflictingChainFound(CBlockIndex* pindexNew)
+void static ConflictingChainFound(CBlockIndex* pindexNew) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
 {
     statsClient.inc("warnings.ConflictingChainFound", 1.0f);
 
@@ -2353,7 +2350,6 @@ bool CChainState::ConnectBlock(const CBlock& block, CValidationState& state, CBl
             } else {
                 // The node which relayed this should switch to correct chain.
                 // TODO: relay instantsend data/proof.
-                LOCK(cs_main);
                 return state.DoS(10, error("ConnectBlock(DASH): transaction %s conflicts with transaction lock %s", tx->GetHash().ToString(), conflictLock->txid.ToString()),
                                  REJECT_INVALID, "conflict-tx-lock");
             }
@@ -4836,7 +4832,7 @@ bool LoadGenesisBlock(const CChainParams& chainparams)
     return g_chainstate.LoadGenesisBlock(chainparams);
 }
 
-bool LoadExternalBlockFile(const CChainParams& chainparams, FILE* fileIn, CDiskBlockPos *dbp)
+void LoadExternalBlockFile(const CChainParams& chainparams, FILE* fileIn, CDiskBlockPos* dbp)
 {
     // Map of disk positions for blocks with unknown parent (only used for reindex)
     static std::multimap<uint256, CDiskBlockPos> mapBlocksUnknownParent;
@@ -4849,7 +4845,7 @@ bool LoadExternalBlockFile(const CChainParams& chainparams, FILE* fileIn, CDiskB
         CBufferedFile blkdat(fileIn, 2*nMaxBlockSize, nMaxBlockSize+8, SER_DISK, CLIENT_VERSION);
         uint64_t nRewind = blkdat.GetPos();
         while (!blkdat.eof()) {
-            boost::this_thread::interruption_point();
+            if (ShutdownRequested()) return;
 
             blkdat.SetPos(nRewind);
             nRewind++; // start one byte further next time, in case of failure
@@ -4953,9 +4949,7 @@ bool LoadExternalBlockFile(const CChainParams& chainparams, FILE* fileIn, CDiskB
     } catch (const std::runtime_error& e) {
         AbortNode(std::string("System error: ") + e.what());
     }
-    if (nLoaded > 0)
-        LogPrintf("Loaded %i blocks from external file in %dms\n", nLoaded, GetTimeMillis() - nStart);
-    return nLoaded > 0;
+    LogPrintf("Loaded %i blocks from external file in %dms\n", nLoaded, GetTimeMillis() - nStart);
 }
 
 void CChainState::CheckBlockIndex(const Consensus::Params& consensusParams)
